@@ -3,6 +3,14 @@ name: Shared code quality
 on:
   workflow_call:
     inputs:
+      checkout-paths:
+        description: Optional sparse checkout paths for repositories containing large archival data.
+        type: string
+        default: ''
+      use-secret-config:
+        description: Use audited .github/gitleaks.toml exceptions for exact known public or synthetic values.
+        type: boolean
+        default: false
       python-version:
         type: string
         default: '3.12'
@@ -46,8 +54,11 @@ jobs:
           fetch-depth: 1
           lfs: false
           submodules: false
+          sparse-checkout: ${{ inputs.checkout-paths }}
 
       - name: Install verified secret scanner
+        env:
+          USE_SECRET_CONFIG: ${{ inputs.use-secret-config }}
         shell: bash
         run: |
           set -euo pipefail
@@ -59,6 +70,11 @@ jobs:
           echo '9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c  '"$dir/gitleaks.tar.gz" | sha256sum --check --strict
           tar -xzf "$dir/gitleaks.tar.gz" -C "$dir" gitleaks
           printf '[extend]\nuseDefault = true\n' > "$dir/gitleaks.toml"
+          if [ "$USE_SECRET_CONFIG" = true ]; then
+            test -f .github/gitleaks.toml
+            test ! -L .github/gitleaks.toml
+            cp .github/gitleaks.toml "$dir/gitleaks.toml"
+          fi
           : > "$dir/empty-ignore"
           # Prove detection works before trusting a clean result. This is a fake key.
           mkdir -p "$dir/self-test"
@@ -90,18 +106,22 @@ jobs:
           root = pathlib.Path.cwd()
           destination = pathlib.Path(sys.argv[1])
           count = 0
+          skipped = 0
           for raw in subprocess.check_output(['git', 'ls-files', '-z']).split(b'\0'):
               if not raw:
                   continue
               relative = pathlib.Path(raw.decode('utf-8', 'surrogateescape'))
               source = root / relative
               if source.is_symlink() or not source.is_file():
+                  skipped += 1
                   continue
               target = destination / relative
               target.parent.mkdir(parents=True, exist_ok=True)
               shutil.copyfile(source, target)
               count += 1
           print(f'Scanning {count} tracked files at the checked-out commit.')
+          if skipped:
+              print(f'{skipped} unavailable or symlink files skipped (including files outside configured sparse paths).')
           PY
           "$dir/gitleaks" dir "$snapshot" --config "$dir/gitleaks.toml" \
             --gitleaks-ignore-path "$dir/empty-ignore" --redact=100 --no-banner --exit-code 1

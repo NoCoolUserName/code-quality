@@ -17,6 +17,10 @@ Use `.github/workflows/code-quality.yml` with `pull_request`, default-branch `pu
 
 Do not add `secrets: inherit`. Never use `pull_request_target` for these checks.
 
+For repositories containing large evidence or email archives, `checkout-paths` can limit checkout to code, configuration and documentation directories. Files outside those sparse paths are not scanned; the log reports the count. This keeps archival data out of routine code-quality jobs. The default is a complete tracked snapshot.
+
+`use-secret-config: true` explicitly enables the caller's audited `.github/gitleaks.toml`. Extend default rules and restrict each exception to both its specific file and an exact verified public/synthetic value. Do not exclude whole test directories or accept arbitrary replacement keys. Every configuration still has to detect the fake-key self-test. Review changes to callers and scanner configuration before approving an external contribution.
+
 ## Failures
 
 Open a repository's **Actions → Code quality → run → Lint, tests and secrets**, then the red step. The same result appears in a pull request's Checks tab and beside commits. The summary explains what ran or was skipped. Existing test/deploy jobs retain their separate results. Checks report failures without changing branch protection.
