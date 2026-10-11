@@ -1,0 +1,195 @@
+name: Shared code quality
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        type: string
+        default: '3.12'
+      python-lint:
+        type: boolean
+        default: true
+      install-command:
+        description: Explicit dependency installation for repositories without existing CI.
+        type: string
+        default: ''
+      test-command:
+        description: Explicit offline tests; blank when absent or already covered.
+        type: string
+        default: ''
+      node-directory:
+        description: Directory with package-lock.json; blank disables Node checks.
+        type: string
+        default: ''
+      node-scripts:
+        description: Space-separated noninteractive package scripts to run if defined.
+        type: string
+        default: 'lint typecheck test'
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Lint, tests and secrets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      CI: 'true'
+    steps:
+      - name: Check out caller
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          lfs: false
+          submodules: false
+
+      - name: Install verified secret scanner
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/quality-tools"
+          mkdir -p "$dir"
+          curl --fail --silent --show-error --location --retry 2 \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz \
+            --output "$dir/gitleaks.tar.gz"
+          echo '9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c  '"$dir/gitleaks.tar.gz" | sha256sum --check --strict
+          tar -xzf "$dir/gitleaks.tar.gz" -C "$dir" gitleaks
+          printf '[extend]\nuseDefault = true\n' > "$dir/gitleaks.toml"
+          : > "$dir/empty-ignore"
+          # Prove detection works before trusting a clean result. This is a fake key.
+          mkdir -p "$dir/self-test"
+          python3 - "$dir/self-test/key.txt" <<'PY'
+          import pathlib, sys
+          pathlib.Path(sys.argv[1]).write_text('token = "' + 'gh' + 'p_' + 'aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3zA5' + '"\n')
+          PY
+          set +e
+          "$dir/gitleaks" dir "$dir/self-test" --config "$dir/gitleaks.toml" \
+            --gitleaks-ignore-path "$dir/empty-ignore" --redact=100 --no-banner >/dev/null 2>&1
+          status=$?
+          set -e
+          rm -rf "$dir/self-test"
+          if [ "$status" -ne 1 ]; then
+            echo '::error::Secret scanner self-test failed.'
+            exit 1
+          fi
+
+      - name: Scan tracked snapshot for secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/quality-tools"
+          # Scan tracked regular files only: never Git credentials, ignored files or dependencies.
+          snapshot="$RUNNER_TEMP/quality-snapshot"
+          mkdir -p "$snapshot"
+          python3 - "$snapshot" <<'PY'
+          import pathlib, shutil, subprocess, sys
+          root = pathlib.Path.cwd()
+          destination = pathlib.Path(sys.argv[1])
+          count = 0
+          for raw in subprocess.check_output(['git', 'ls-files', '-z']).split(b'\0'):
+              if not raw:
+                  continue
+              relative = pathlib.Path(raw.decode('utf-8', 'surrogateescape'))
+              source = root / relative
+              if source.is_symlink() or not source.is_file():
+                  continue
+              target = destination / relative
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(source, target)
+              count += 1
+          print(f'Scanning {count} tracked files at the checked-out commit.')
+          PY
+          "$dir/gitleaks" dir "$snapshot" --config "$dir/gitleaks.toml" \
+            --gitleaks-ignore-path "$dir/empty-ignore" --redact=100 --no-banner --exit-code 1
+          echo '### Secrets: passed (tracked snapshot; no historical scan)' >> "$GITHUB_STEP_SUMMARY"
+          rm -rf "$snapshot"
+
+      - name: Set up Python
+        if: inputs.python-lint || inputs.install-command != '' || inputs.test-command != ''
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Python correctness lint
+        if: inputs.python-lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$(git ls-files '*.py')" ]; then
+            echo '### Python lint: skipped (no tracked Python files)' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python -m pip install --only-binary=:all: --no-deps ruff==0.17.0
+          # Use a small correctness baseline rather than introduce formatting churn.
+          python -m ruff check --isolated --select E9,F63,F7,F82 .
+          echo '### Python correctness lint: passed' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install configured Python dependencies
+        if: inputs.install-command != ''
+        env:
+          INSTALL_COMMAND: ${{ inputs.install-command }}
+        shell: bash
+        run: bash --noprofile --norc -e -o pipefail -c "$INSTALL_COMMAND"
+
+      - name: Run configured offline Python tests
+        if: inputs.test-command != ''
+        env:
+          TEST_COMMAND: ${{ inputs.test-command }}
+        shell: bash
+        run: |
+          bash --noprofile --norc -e -o pipefail -c "$TEST_COMMAND"
+          echo '### Configured Python tests: passed' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Explain Python test coverage
+        if: inputs.test-command == ''
+        shell: bash
+        run: |
+          echo '### Shared Python tests: skipped (absent or covered by existing repository CI)' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up Node
+        if: inputs.node-directory != ''
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Run available Node checks
+        if: inputs.node-directory != ''
+        env:
+          NODE_DIRECTORY: ${{ inputs.node-directory }}
+          NODE_SCRIPTS: ${{ inputs.node-scripts }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$NODE_DIRECTORY"
+          if [ ! -f package.json ]; then
+            echo '### Node checks: skipped (no package.json)' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ ! -f package-lock.json ]; then
+            echo '::error::Configured Node checks require package-lock.json; refusing an unlocked install.'
+            exit 1
+          fi
+          npm ci --no-audit --no-fund
+          for script in $NODE_SCRIPTS; do
+            if [[ ! "$script" =~ ^[A-Za-z0-9:_-]+$ ]]; then
+              echo '::error::Invalid Node script name.'
+              exit 1
+            fi
+            if node -e 'const p=require("./package.json"); process.exit(p.scripts?.[process.argv[1]] ? 0 : 1)' "$script"; then
+              npm run "$script"
+              echo "### Node $script: passed" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "### Node $script: skipped (script absent)" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+      - name: Failure guidance
+        if: failure()
+        shell: bash
+        run: |
+          echo '### Check failed' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Open the red step above for the cause. Missing dependencies or scanner failures are failures, not clean results. Secret values are redacted; no reports or source files are uploaded.' >> "$GITHUB_STEP_SUMMARY"
