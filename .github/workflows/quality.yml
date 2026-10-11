@@ -17,6 +17,18 @@ on:
       python-lint:
         type: boolean
         default: true
+      use-python-lint-config:
+        description: Use an established repository Ruff configuration instead of the shared correctness rules.
+        type: boolean
+        default: false
+      typecheck-command:
+        description: Explicit incremental mypy check; blank when absent or already covered.
+        type: string
+        default: ''
+      typecheck-packages:
+        description: Optional pinned type stubs needed by the configured mypy check.
+        type: string
+        default: ''
       install-command:
         description: Explicit dependency installation for repositories without existing CI.
         type: string
@@ -154,13 +166,15 @@ jobs:
           rm -rf "$snapshot"
 
       - name: Set up Python
-        if: inputs.python-lint || inputs.install-command != '' || inputs.test-command != ''
+        if: inputs.python-lint || inputs.install-command != '' || inputs.test-command != '' || inputs.typecheck-command != ''
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ inputs.python-version }}
 
       - name: Python correctness lint
         if: inputs.python-lint
+        env:
+          USE_PYTHON_LINT_CONFIG: ${{ inputs.use-python-lint-config }}
         shell: bash
         run: |
           set -euo pipefail
@@ -169,8 +183,12 @@ jobs:
             exit 0
           fi
           python -m pip install --only-binary=:all: --no-deps ruff==0.17.0
-          # Use a small correctness baseline rather than introduce formatting churn.
-          python -m ruff check --isolated --select E9,F63,F7,F82 .
+          if [ "$USE_PYTHON_LINT_CONFIG" = true ]; then
+            python -m ruff check .
+          else
+            # Correctness checks avoid requiring unrelated formatting or application changes.
+            python -m ruff check --isolated --select E9,F63,F7,F82,B002,B006,B012,B014,B016,B018,B019,B024,B025,B026,B029,B030,B034,SIM101,SIM201,SIM202,SIM208,SIM211 .
+          fi
           echo '### Python correctness lint: passed' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install configured Python dependencies
@@ -179,6 +197,27 @@ jobs:
           INSTALL_COMMAND: ${{ inputs.install-command }}
         shell: bash
         run: bash --noprofile --norc -e -o pipefail -c "$INSTALL_COMMAND"
+
+      - name: Run configured Python type checks
+        if: inputs.typecheck-command != ''
+        env:
+          TYPECHECK_COMMAND: ${{ inputs.typecheck-command }}
+          TYPECHECK_PACKAGES: ${{ inputs.typecheck-packages }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --only-binary=:all: mypy==2.4.0
+          if [ -n "$TYPECHECK_PACKAGES" ]; then
+            python -m pip install --only-binary=:all: $TYPECHECK_PACKAGES
+          fi
+          bash --noprofile --norc -e -o pipefail -c "$TYPECHECK_COMMAND"
+          echo '### Configured Python type checks: passed' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Explain Python type coverage
+        if: inputs.typecheck-command == ''
+        shell: bash
+        run: |
+          echo '### Shared Python types: skipped (no selected target or covered by existing repository CI)' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run configured offline Python tests
         if: inputs.test-command != ''
