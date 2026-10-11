@@ -123,8 +123,33 @@ jobs:
           if skipped:
               print(f'{skipped} unavailable or symlink files skipped (including files outside configured sparse paths).')
           PY
+          set +e
           "$dir/gitleaks" dir "$snapshot" --config "$dir/gitleaks.toml" \
-            --gitleaks-ignore-path "$dir/empty-ignore" --redact=100 --no-banner --exit-code 1
+            --gitleaks-ignore-path "$dir/empty-ignore" --redact=100 --no-banner --exit-code 1 \
+            --report-format json --report-path "$dir/findings.json"
+          scan_status=$?
+          set -e
+          python3 - "$dir/findings.json" "$snapshot" <<'PY'
+          import json, pathlib, sys
+          report = pathlib.Path(sys.argv[1])
+          root = pathlib.Path(sys.argv[2])
+          for finding in json.loads(report.read_text()) if report.exists() else []:
+              file = pathlib.Path(finding['File'])
+              try:
+                  file = file.relative_to(root)
+              except ValueError:
+                  pass
+              # Print locations only, never matching lines or credential values.
+              print('Secret finding: ' + json.dumps({
+                  'file': str(file), 'line': finding['StartLine'],
+                  'rule': finding['RuleID'],
+              }))
+          PY
+          rm -f "$dir/findings.json"
+          if [ "$scan_status" -ne 0 ]; then
+            rm -rf "$snapshot"
+            exit "$scan_status"
+          fi
           echo '### Secrets: passed (tracked snapshot; no historical scan)' >> "$GITHUB_STEP_SUMMARY"
           rm -rf "$snapshot"
 
