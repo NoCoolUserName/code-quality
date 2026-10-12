@@ -1,0 +1,42 @@
+name: Shared CodeQL analysis
+on:
+  workflow_call:
+    inputs:
+      framework-ref:
+        type: string
+        required: true
+      languages:
+        type: string
+        default: python
+permissions:
+  contents: read
+jobs:
+  codeql:
+    name: Security / CodeQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: NoCoolUserName/code-quality
+          ref: ${{ inputs.framework-ref }}
+          path: .quality-framework
+          persist-credentials: false
+          sparse-checkout: scripts
+      - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
+        with:
+          languages: ${{ inputs.languages }}
+          build-mode: none
+      - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
+        with:
+          category: '/language:${{ inputs.languages }}'
+          output: ${{ runner.temp }}/codeql-results
+      - name: Block high or critical CodeQL findings
+        run: python3 .quality-framework/scripts/check_sarif.py "$RUNNER_TEMP/codeql-results"

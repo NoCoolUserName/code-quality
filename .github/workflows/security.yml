@@ -5,12 +5,6 @@ on:
       framework-ref:
         type: string
         required: true
-      engine:
-        type: string
-        default: semgrep
-      languages:
-        type: string
-        default: python
       checkout-paths:
         type: string
         default: ''
@@ -19,7 +13,6 @@ permissions:
 jobs:
   semgrep:
     name: Security / Semgrep
-    if: inputs.engine == 'semgrep'
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
@@ -46,33 +39,3 @@ jobs:
           SEMGREP_SEND_METRICS: 'off'
           SEMGREP_ENABLE_VERSION_CHECK: '0'
         run: semgrep scan --config ../framework/rules/security.yml --metrics off --disable-version-check --error --strict --timeout 10 --max-memory 2048 --no-git-ignore --exclude '**/node_modules/**' --exclude '**/.venv/**' --exclude '**/dist/**' .
-  codeql:
-    name: Security / CodeQL
-    if: inputs.engine == 'codeql'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      security-events: write
-      actions: read
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: NoCoolUserName/code-quality
-          ref: ${{ inputs.framework-ref }}
-          path: .quality-framework
-          persist-credentials: false
-          sparse-checkout: scripts
-      - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
-        with:
-          languages: ${{ inputs.languages }}
-          build-mode: none
-      - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
-        with:
-          category: '/language:${{ inputs.languages }}'
-          output: ${{ runner.temp }}/codeql-results
-      - name: Block high or critical CodeQL findings
-        run: python3 .quality-framework/scripts/check_sarif.py "$RUNNER_TEMP/codeql-results"

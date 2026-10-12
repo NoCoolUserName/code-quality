@@ -23,6 +23,7 @@ jobs:
       pull-requests: write
       actions: read
       checks: read
+      statuses: read
     steps:
       - name: Validate trusted framework pin
         env:

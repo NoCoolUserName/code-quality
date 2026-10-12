@@ -1,0 +1,22 @@
+name: Framework security
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  security:
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    uses: NoCoolUserName/code-quality/.github/workflows/security.yml@50cfed7226b257d94c2f38a3b5560cc1fa7a0947
+    with:
+      framework-ref: 50cfed7226b257d94c2f38a3b5560cc1fa7a0947
+      engine: codeql
+      languages: python
