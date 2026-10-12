@@ -38,13 +38,21 @@ on:
         type: string
         default: ''
       node-directory:
-        description: Directory with package-lock.json; blank disables Node checks.
+        description: Directory with package.json; blank disables Node checks.
         type: string
         default: ''
       node-scripts:
         description: Space-separated noninteractive package scripts to run if defined.
         type: string
         default: 'lint typecheck test'
+      node-required-scripts:
+        description: Scripts that must exist and run; missing scripts fail validation.
+        type: string
+        default: ''
+      node-lockfile-required:
+        description: Require a committed lockfile; false resolves a temporary lock before npm ci.
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -245,24 +253,49 @@ jobs:
         env:
           NODE_DIRECTORY: ${{ inputs.node-directory }}
           NODE_SCRIPTS: ${{ inputs.node-scripts }}
+          NODE_REQUIRED_SCRIPTS: ${{ inputs.node-required-scripts }}
+          NODE_LOCKFILE_REQUIRED: ${{ inputs.node-lockfile-required }}
         shell: bash
         run: |
           set -euo pipefail
           cd "$NODE_DIRECTORY"
           if [ ! -f package.json ]; then
-            echo '### Node checks: skipped (no package.json)' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          if [ ! -f package-lock.json ]; then
-            echo '::error::Configured Node checks require package-lock.json; refusing an unlocked install.'
+            echo '::error::Configured Node directory has no package.json.'
             exit 1
           fi
+          # Required checks cannot silently disappear from package.json.
+          for script in $NODE_REQUIRED_SCRIPTS; do
+            if [[ ! "$script" =~ ^[A-Za-z0-9_][A-Za-z0-9:_-]*$ ]]; then
+              echo '::error::Invalid required Node script name.'
+              exit 1
+            fi
+            if ! node -e 'const p=require("./package.json"); process.exit(p.scripts?.[process.argv[1]] ? 0 : 1)' "$script"; then
+              echo "::error::Required Node script is missing: $script"
+              exit 1
+            fi
+          done
+          if [ ! -f package-lock.json ]; then
+            if [ "$NODE_LOCKFILE_REQUIRED" != false ]; then
+              echo '::error::Configured Node checks require package-lock.json; refusing an unlocked install.'
+              exit 1
+            fi
+            # Explicit opt-in for repositories whose policy excludes committed locks.
+            # This locks one run; future runs may resolve different in-range versions.
+            npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+            echo '### Node install: temporary lock resolved (not reproducible across runs)' >> "$GITHUB_STEP_SUMMARY"
+          fi
           npm ci --no-audit --no-fund
-          for script in $NODE_SCRIPTS; do
-            if [[ ! "$script" =~ ^[A-Za-z0-9:_-]+$ ]]; then
+          npm ls --depth=0
+          declare -A completed=()
+          for script in $NODE_SCRIPTS $NODE_REQUIRED_SCRIPTS; do
+            if [[ ! "$script" =~ ^[A-Za-z0-9_][A-Za-z0-9:_-]*$ ]]; then
               echo '::error::Invalid Node script name.'
               exit 1
             fi
+            if [[ -n "${completed[$script]:-}" ]]; then
+              continue
+            fi
+            completed[$script]=1
             if node -e 'const p=require("./package.json"); process.exit(p.scripts?.[process.argv[1]] ? 0 : 1)' "$script"; then
               npm run "$script"
               echo "### Node $script: passed" >> "$GITHUB_STEP_SUMMARY"
