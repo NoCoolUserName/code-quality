@@ -1,0 +1,15 @@
+{
+  "enabled": false,
+  "blocked_reason": "This framework updates workflows/security policy; those changes are intentionally excluded from automatic merging.",
+  "allow_dev_minor": false,
+  "dependency_files": [],
+  "required_workflows": [
+    ".github/workflows/framework-tests.yml",
+    ".github/workflows/code-security.yml"
+  ],
+  "required_checks": [
+    "policy",
+    "scanner",
+    "security / Security / CodeQL"
+  ]
+}

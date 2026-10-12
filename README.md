@@ -77,8 +77,8 @@ is actually enforced, even if its caller has `merge: true`.
 
 ## Security analysis
 
-`security.yml` uses CodeQL's default queries for eligible public code repositories
-and local Semgrep rules for private repositories. Do not run both on the same code.
+`codeql.yml` uses CodeQL's default queries for eligible public code repositories;
+`security.yml` uses local Semgrep rules for private repositories. Do not run both on the same code.
 CodeQL's high/critical security results fail the check in addition to uploading
 results to GitHub. The pinned Semgrep engine uses six reviewed Python/JS/TS rules
 covering shell execution, unsafe YAML, disabled TLS verification, dynamic JavaScript

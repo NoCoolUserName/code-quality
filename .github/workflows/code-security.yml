@@ -15,8 +15,7 @@ jobs:
       contents: read
       security-events: write
       actions: read
-    uses: NoCoolUserName/code-quality/.github/workflows/security.yml@50cfed7226b257d94c2f38a3b5560cc1fa7a0947
+    uses: NoCoolUserName/code-quality/.github/workflows/codeql.yml@a7806408229cb84347ec1bb1651672d68a891b47
     with:
-      framework-ref: 50cfed7226b257d94c2f38a3b5560cc1fa7a0947
-      engine: codeql
+      framework-ref: a7806408229cb84347ec1bb1651672d68a891b47
       languages: python
