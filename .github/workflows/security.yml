@@ -39,7 +39,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install pinned local scanner
-        run: python -m pip install --only-binary=:all: semgrep==1.180.0
+        run: 'python -m pip install --only-binary=:all: semgrep==1.180.0'
       - name: Offline security rules, no telemetry or cloud upload
         working-directory: target
         env:
