@@ -5,11 +5,13 @@
   "dependency_files": [],
   "required_workflows": [
     ".github/workflows/framework-tests.yml",
-    ".github/workflows/code-security.yml"
+    ".github/workflows/code-security.yml",
+    ".github/workflows/node-validation-tests.yml"
   ],
   "required_checks": [
     "policy",
     "scanner",
-    "security / Security / CodeQL"
+    "security / Security / CodeQL",
+    "Required Node checks contract"
   ]
 }

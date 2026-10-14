@@ -8,7 +8,7 @@ No Codex, GitHub Copilot, model calls, API keys, subscriptions or third-party Ac
 - Gitleaks 8.24.3 scans the tracked snapshot, with its standard rules and fully redacted output. Its download has a fixed SHA-256 checksum; a fake-key self-test must pass before every scan. This is not a full Git history scan or a guarantee that every secret format is detected. Binary/archive contents and Git LFS payloads are not comprehensive coverage. Revoke real exposed credentials even after deleting them.
 - Ruff 0.17.0 checks Python syntax, invalid comparisons/control flow, undefined names, mutable defaults, dangerous exception/finally patterns and other selected bug risks. Navimow opts into its broader established Ruff configuration. Repositories with comprehensive existing lint can disable duplicate lint.
 - Optional mypy 2.4.0 checks selected typed modules after preflight validation. This is incremental coverage, not a claim that an entire repository is strictly typed. Type stubs are explicitly pinned when needed.
-- Explicit offline Python tests and locked Node package scripts run when configured. Existing repository tests are preserved. Missing checks are visibly skipped in the run summary; configured commands that fail remain failures.
+- Explicit offline Python tests and Node package scripts run when configured. Existing repository tests are preserved. Missing optional checks are visibly skipped in the run summary; required scripts and configured commands that fail remain failures.
 
 The job uses Ubuntu 24.04, a ten-minute timeout and only `contents: read`. Checkout does not retain Git credentials. No caller secrets are inherited, no privileged PR trigger is used, and the quality job never creates or approves PRs. No source or secret reports are uploaded. Dependencies and tests execute repository code on a disposable GitHub-hosted runner with the same limited token scope; review external contributions before approving them.
 
@@ -17,6 +17,14 @@ The job uses Ubuntu 24.04, a ten-minute timeout and only `contents: read`. Check
 Use `.github/workflows/code-quality.yml` with `pull_request`, default-branch `push`, and `workflow_dispatch` triggers. Pin the shared workflow to a verified full 40-character commit SHA. Add per-workflow concurrency with cancellation of superseded runs. Omit Python install/test commands when an existing workflow already covers them.
 
 Do not add `secrets: inherit`. Never use `pull_request_target` for these checks.
+
+### Required frontend validation
+
+Set `node-directory` to the frontend directory and include `typecheck test build` in both `node-scripts` and `node-required-scripts`. Required scripts must exist and execute successfully; a missing package or script fails the job. Optional scripts retain their existing skip behavior. Scripts listed twice run once.
+
+The default `node-lockfile-required: true` still requires `package-lock.json` and uses `npm ci`. A repository whose explicit policy prohibits committed lockfiles may set `node-lockfile-required: false`: the runner resolves a temporary lock with `npm install --package-lock-only --ignore-scripts`, then performs `npm ci`. This fixes versions within that run only; later runs can resolve different versions allowed by the manifest. `npm ls --depth=0` records the resolved direct versions and rejects invalid installations. Nothing commits or uploads the temporary lock.
+
+The Node validation contract workflow exercises the actual Node shell for missing required scripts/packages, default lock enforcement, explicit temporary-lock resolution, required-script execution, duplicate scripts, and installation/test failures. It uses controlled npm results; consumers must also pass their real installs, tests, type checks and builds before merge.
 
 For repositories containing large evidence or email archives, `checkout-paths` can limit checkout to code, configuration and documentation directories. Files outside those sparse paths are not scanned; the log reports the count. This keeps archival data out of routine code-quality jobs. The default is a complete tracked snapshot.
 
@@ -110,7 +118,9 @@ source artifacts, nightly scan schedules or recurring AI services are required.
 GitHub billing-budget alerts need account administration and are separate from
 per-job timeouts; do not claim a budget is configured merely because timeouts exist.
 
-Known-good framework before this extension: `7c8c3acf420f22d7b558f78fa693210a9ae03a24`.
+Known-good main before this reconciled extension: `927052f6ef9ce21c1fec280dcc87affdee1ae87a`.
+The extension retains the required Node validation inputs and contract tests from
+PR #3; the central native-check policy includes those contract tests.
 Disable a caller's `merge` input or set policy `enabled: false` to stop automatic
 merges immediately. Revert individual dependency commits through a tested PR;
 never erase history or relax checks. Caller pin changes and framework policy
