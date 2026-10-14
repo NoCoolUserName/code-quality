@@ -108,7 +108,7 @@ def changes_allowed(files, contents, policy):
             changes += npm_lock_change(json.loads(old), json.loads(new), policy.get('allow_dev_minor', False))
         elif path.endswith('package.json'):
             changes += manifest_change(json.loads(old), json.loads(new), policy.get('allow_dev_minor', False))
-        elif re.fullmatch(r'(.*/)?requirements(?:[.-][A-Za-z0-9_-]+)*\.txt', path):
+        elif re.fullmatch(r'(?:[^/]+/)*requirements(?:[.-][A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)?\.txt', path):
             changes += requirements_change(old, new)
         else:
             raise Blocked('Lock/manifest format has not been validated for automatic merging')

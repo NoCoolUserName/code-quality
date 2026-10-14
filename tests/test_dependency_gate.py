@@ -1,5 +1,6 @@
 import copy
 import sys
+import subprocess
 import unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
@@ -57,6 +58,19 @@ class GateTests(unittest.TestCase):
         for path in ['.github/workflows/ci.yml','.github/dependency-policy.json','src/app.ts','SECURITY.md']:
             with self.assertRaises(Blocked): changes_allowed([{'filename':path,'status':'modified'}],{path:('a','b')},{'dependency_files':['package-lock.json']})
 
+    def test_requirement_filenames_and_backtracking_guard(self):
+        for path in ['requirements.txt', 'requirements.lock.txt', 'config/requirements-dev.txt']:
+            with self.subTest(path=path):
+                changes_allowed([{'filename': path, 'status': 'modified'}],
+                                {path: ('x==1.2.3', 'x==1.2.4')}, {'dependency_files': [path]})
+        # The previous nested quantifier could hang on this rejected filename.
+        source = "from dependency_gate import *; p='requirements-'+'--'*10000+'!'; changes_allowed([{'filename':p,'status':'modified'}], {p:('x==1.2.3','x==1.2.4')}, {'dependency_files':[p]})"
+        import os
+        result = subprocess.run([sys.executable, '-c', source], capture_output=True,
+                                timeout=2, env=dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1] / 'scripts')))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b'Lock/manifest format', result.stderr)
+
     def test_renames_block(self):
         with self.assertRaises(Blocked): changes_allowed([{'filename':'requirements.txt','status':'renamed'}],{}, {'dependency_files':['requirements.txt']})
 
@@ -102,9 +116,15 @@ class GateTests(unittest.TestCase):
 class SarifTests(unittest.TestCase):
     def test_clean_and_high_severity(self):
         from check_sarif import failures
-        self.assertEqual(failures({'runs':[{'results':[]}]}),[])
-        self.assertTrue(failures({'runs':[]}))
-        self.assertTrue(failures({'runs':[{'invocations':[{'executionSuccessful':False}]}]}))
-        self.assertTrue(failures({'runs':[{'tool':{'driver':{'rules':[{'id':'x','properties':{'security-severity':'8.1'}}]}},'results':[{'ruleId':'x'}]}]}))
+        run = {'tool': {'driver': {'name': 'CodeQL', 'rules': [
+            {'id': 'x', 'properties': {'security-severity': '8.1'}}]}}, 'results': []}
+        report = {'version': '2.1.0', 'runs': [run]}
+        self.assertEqual(failures(report), [])
+        self.assertTrue(failures({'version': '2.1.0', 'runs': []}))
+        run['invocations'] = [{'executionSuccessful': False}]
+        self.assertTrue(failures(report))
+        run['invocations'] = [{'executionSuccessful': True}]
+        run['results'] = [{'ruleId': 'x', 'message': {'text': 'Synthetic finding'}}]
+        self.assertTrue(failures(report))
 
 if __name__=='__main__': unittest.main()
