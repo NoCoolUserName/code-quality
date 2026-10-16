@@ -1,0 +1,43 @@
+name: Guarded dependency merge
+on:
+  workflow_call:
+    inputs:
+      framework-ref:
+        type: string
+        required: true
+      merge:
+        type: boolean
+        default: false
+      pr-number:
+        type: string
+        default: ''
+permissions:
+  contents: read
+jobs:
+  dependency-merge:
+    name: Dependency automation / guarded merge
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+      checks: read
+      statuses: read
+    steps:
+      - name: Validate trusted framework pin
+        env:
+          FRAMEWORK_REF: ${{ inputs.framework-ref }}
+        run: '[[ "$FRAMEWORK_REF" =~ ^[0-9a-f]{40}$ ]]'
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: NoCoolUserName/code-quality
+          ref: ${{ inputs.framework-ref }}
+          persist-credentials: false
+          sparse-checkout: scripts
+      - name: Assess only API data; merge only through native strict rules
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGE_ENABLED: ${{ inputs.merge }}
+          PR_NUMBER: ${{ inputs.pr-number }}
+        run: python3 scripts/dependency_gate.py

@@ -10,7 +10,7 @@ No Codex, GitHub Copilot, model calls, API keys, subscriptions or third-party Ac
 - Optional mypy 2.4.0 checks selected typed modules after preflight validation. This is incremental coverage, not a claim that an entire repository is strictly typed. Type stubs are explicitly pinned when needed.
 - Explicit offline Python tests and Node package scripts run when configured. Existing repository tests are preserved. Missing optional checks are visibly skipped in the run summary; required scripts and configured commands that fail remain failures.
 
-The job uses Ubuntu 24.04, a ten-minute timeout and only `contents: read`. Checkout does not retain Git credentials. No caller secrets are inherited, no privileged PR trigger is used, and nothing creates or approves PRs. No source or secret reports are uploaded. Dependencies and tests execute repository code on a disposable GitHub-hosted runner with the same limited token scope; review external contributions before approving them.
+The job uses Ubuntu 24.04, a ten-minute timeout and only `contents: read`. Checkout does not retain Git credentials. No caller secrets are inherited, no privileged PR trigger is used, and the quality job never creates or approves PRs. No source or secret reports are uploaded. Dependencies and tests execute repository code on a disposable GitHub-hosted runner with the same limited token scope; review external contributions before approving them.
 
 ## Caller
 
@@ -38,8 +38,90 @@ Open a repository's **Actions → Code quality → run → Lint, tests and secre
 
 One short Linux job per relevant push/PR, no schedule, no new caches and no artifacts. These checks make no model calls; ordinary GitHub Actions usage applies, including the account's limits for private repositories. Avoid duplicate push and PR runs by pushing only the default branch trigger plus PR events. Existing workflows can still run their own matrices and uploads.
 
-Dependabot is configured separately in `.github/dependabot.yml`. It checks GitHub Actions and applicable package manifests monthly, groups proposals, and allows one open version-update PR per ecosystem. Workbench's core package is maintained by its dedicated compatibility-tested updater to avoid two bots editing the same core dependency files. Dependabot does not need quality jobs to have write permissions, and no bot auto-merges these proposals.
+Dependabot is configured separately in `.github/dependabot.yml`. It checks GitHub Actions and applicable package manifests monthly, groups proposals, and allows one open version-update PR per ecosystem. Workbench's core package is maintained by its dedicated compatibility-tested updater to avoid two bots editing the same core dependency files. Dependabot does not need quality jobs to have write permissions, and the separate opt-in guarded controller can merge eligible proposals.
 
 Shared workflow versions are published with versioned tags after a successful volatility-mcp pilot; callers retain full SHA pins and version comments so Dependabot can propose new releases without manually editing every caller. Review the PR and its checks before merging. The initial configuration also causes Dependabot to check for available updates; a clean repository may produce no PR.
 
-Review monthly grouped PRs when GitHub notifies you, and address security alerts promptly. Check the centrally pinned Ruff/mypy versions and Gitleaks release/checksum roughly quarterly, or sooner for a relevant advisory. These tool versions and the scanner checksum are deliberately verified together in the central workflow; Dependabot does not edit the hardcoded tool downloads. Verify updated pins/checksums, run the pilot successfully, then publish a new workflow release so Dependabot can propose caller updates. Missing optional checks are reported as skipped; an explicitly configured command that fails fails the job. Preserve branch protections and review permissions exceptions separately.
+Ineligible updates remain blocked for agent-assisted maintenance; address security alerts promptly. Check the centrally pinned Ruff/mypy versions and Gitleaks release/checksum roughly quarterly, or sooner for a relevant advisory. These tool versions and the scanner checksum are deliberately verified together in the central workflow; Dependabot does not edit the hardcoded tool downloads. Verify updated pins/checksums, run the pilot successfully, then publish a new workflow release so Dependabot can propose caller updates. Missing optional checks are reported as skipped; an explicitly configured command that fails fails the job. Preserve branch protections and review permissions exceptions separately.
+
+## Guarded dependency automation (opt-in extension)
+
+`dependency-merge.yml` adds a separate privileged control job; `quality.yml` is
+unchanged. Trigger it through `workflow_run: completed` for every relevant check
+workflow. Pin both the reusable workflow and `framework-ref` to the same verified
+commit. The controller checks out **only the pinned public framework**, never a PR
+branch, artifact, dependency or script. It uses only Python's standard library and
+GitHub API data. No AI calls, approvals, deployments or migrations occur.
+
+A caller's `.github/dependency-policy.json` is read from the PR's immutable base.
+The dependency gate requires the actual Dependabot account ID, a same-repository
+PR, only bot-authored commits, exact dependency-file allowlists, approved semantic
+version changes, successful required workflow runs and exact GitHub Actions check
+names on the current head, no other failing/pending checks, and native strict
+required-check rules. GitHub must report a clean/up-to-date merge and the merge API
+receives the expected head SHA. No admin bypass, force update or failed-check
+exception exists. Unknown state, pagination limits, missing evidence and API
+permission errors block merging. This controller never approves PRs.
+
+The initial validated file formats are npm v3 lockfiles with existing package
+membership, dependency-only package.json updates, and exact-pinned requirements
+files. Stable patch upgrades are eligible. A repository may opt into **minor dev
+updates** only after meaningful compatibility tests; production minors, majors,
+prereleases, downgrades, added/removed dependencies, lifecycle-script edits,
+workflow/policy changes and unsupported lock formats are blocked. uv/pyproject
+updates continue to get proposals and checks but are not auto-merged by this
+initial conservative parser. No repository with missing behavioral coverage should
+set `enabled: true`. Group patch updates separately from other version updates so
+an ineligible update cannot hold all patch proposals hostage.
+
+`configure_ruleset.py REPOSITORY` previews an additive native ruleset from the
+repository policy. `--apply` needs a separately authorized administrator session.
+It requires the configured GitHub Actions checks, up-to-date branches, a PR and
+resolved conversations; approving-review count is zero and bypass actors are empty.
+It prevents force pushes and deletion without replacing unrelated protections.
+Do not put administrator credentials in Actions. Private-repository rulesets may
+require an appropriate GitHub plan. The controller stays blocked until protection
+is actually enforced, even if its caller has `merge: true`.
+
+## Security analysis
+
+`codeql.yml` uses CodeQL's default queries for eligible public code repositories;
+`security.yml` uses local Semgrep rules for private repositories. Do not run both on the same code.
+CodeQL's high/critical security results fail the check in addition to uploading
+results to GitHub. The pinned Semgrep engine uses six reviewed Python/JS/TS rules
+covering shell execution, unsafe YAML, disabled TLS verification, dynamic JavaScript
+execution and URL-to-HTML injection. It uses no hosted rule service, credentials,
+telemetry, source uploads or paid features. These deliberately small rules are
+limited SAST coverage, not a substitute for behavioral and negative tests. Scanner
+failure is a failed check. Existing tests, protocol contracts, frozen synthetic
+evaluations and integration checks remain authoritative.
+
+## Passive web scanning decision
+
+Do not enable broad ZAP scans across repositories. A Baseline spider sends requests
+and can follow links even though its vulnerability analysis is passive. Before
+opting in, supply an isolated temporary local target with synthetic state, no
+credentials, external egress denied, a strict local URL allowlist, pinned scanner
+image digest, bounded crawl and cleanup. Do not point it at production, external
+URLs, evidence services, live model APIs or device-control services. Pure CLI/MCP
+repositories are ineligible; browser regression tests generally offer more value
+for static local learning/portfolio applications. No ZAP scan is scheduled by this
+extension until a repository-specific isolated-target pilot passes.
+
+## Resource limits and recovery
+
+Keep validation on PRs and default-branch pushes, with superseded-run cancellation.
+Keep project-specific matrices where they validate supported Python/protocol
+contracts. The merge controller has a five-minute limit, Semgrep eight minutes,
+CodeQL fifteen minutes, and the original quality job ten minutes. No new caches,
+source artifacts, nightly scan schedules or recurring AI services are required.
+GitHub billing-budget alerts need account administration and are separate from
+per-job timeouts; do not claim a budget is configured merely because timeouts exist.
+
+Known-good main before this reconciled extension: `927052f6ef9ce21c1fec280dcc87affdee1ae87a`.
+The extension retains the required Node validation inputs and contract tests from
+PR #3; the central native-check policy includes those contract tests.
+Disable a caller's `merge` input or set policy `enabled: false` to stop automatic
+merges immediately. Revert individual dependency commits through a tested PR;
+never erase history or relax checks. Caller pin changes and framework policy
+updates are intentionally excluded from unattended dependency merging.

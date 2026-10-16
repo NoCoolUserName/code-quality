@@ -1,0 +1,41 @@
+rules:
+  - id: python-shell-execution
+    languages: [python]
+    severity: ERROR
+    message: Shell execution needs a deliberate security review; use an argument vector.
+    pattern: subprocess.$FUNC(..., shell=True, ...)
+  - id: python-unsafe-yaml-loader
+    languages: [python]
+    severity: ERROR
+    message: Unsafe YAML loader can construct Python objects; use safe_load.
+    pattern-either:
+      - pattern: yaml.unsafe_load(...)
+      - pattern: yaml.load(..., Loader=yaml.Loader, ...)
+      - pattern: yaml.load(..., Loader=yaml.UnsafeLoader, ...)
+  - id: python-disabled-tls-verification
+    languages: [python]
+    severity: ERROR
+    message: TLS verification is disabled.
+    pattern: $CLIENT.$METHOD(..., verify=False, ...)
+  - id: javascript-dynamic-code
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Dynamic code execution requires review; avoid eval and Function construction.
+    pattern-either:
+      - pattern: eval($CODE)
+      - pattern: new Function(...)
+  - id: javascript-disabled-tls-verification
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: TLS certificate verification is disabled.
+    pattern: '{..., rejectUnauthorized: false, ...}'
+  - id: javascript-location-to-html
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: URL-controlled content reaches innerHTML without sanitization.
+    mode: taint
+    pattern-sources:
+      - pattern: window.location.$PROP
+      - pattern: document.location.$PROP
+    pattern-sinks:
+      - pattern: $ELEMENT.innerHTML = $VALUE
