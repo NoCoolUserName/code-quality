@@ -15,7 +15,8 @@ jobs:
       contents: read
       security-events: write
       actions: read
-    uses: NoCoolUserName/code-quality/.github/workflows/codeql.yml@7301db3486bf182012a0ab8005207dd9b35f471c
+    # Local calls resolve to this run's exact commit, so PRs test their own workflow.
+    uses: ./.github/workflows/codeql.yml
     with:
-      framework-ref: 7301db3486bf182012a0ab8005207dd9b35f471c
+      framework-ref: ${{ github.sha }}
       languages: python
