@@ -125,3 +125,9 @@ Disable a caller's `merge` input or set policy `enabled: false` to stop automati
 merges immediately. Revert individual dependency commits through a tested PR;
 never erase history or relax checks. Caller pin changes and framework policy
 updates are intentionally excluded from unattended dependency merging.
+
+## License
+
+Original project code and documentation are licensed under the [MIT License](LICENSE).
+Third-party tools executed by these workflows retain their own licenses; this
+license does not relicense their binaries, rules, or source code.
