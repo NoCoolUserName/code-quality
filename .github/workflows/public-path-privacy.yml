@@ -1,0 +1,50 @@
+name: Public path privacy
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tracked-files:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Reject local home paths and owner identifiers in tracked files
+        shell: bash
+        run: |
+          python3 - <<'PYSCAN'
+          import pathlib
+          import re
+          import subprocess
+          import sys
+
+          patterns = (
+              re.compile(rb'/Users/[A-Za-z0-9._-]+/'),
+              re.compile(rb'/home/[A-Za-z0-9._-]+/'),
+              re.compile(rb'[A-Za-z]:\\Users\\(?!Public\\|Default\\)[A-Za-z0-9._-]+\\', re.I),
+              re.compile(rb'a' + rb'moore', re.I),
+              re.compile(rb'Adam' + rb' Moore', re.I),
+          )
+          findings = []
+          for raw in subprocess.check_output(['git', 'ls-files', '-z']).split(b'\0'):
+              if not raw:
+                  continue
+              path = pathlib.Path(raw.decode('utf-8', 'surrogateescape'))
+              if not path.is_file() or path.is_symlink():
+                  continue
+              data = path.read_bytes()
+              if b'\0' in data:
+                  continue
+              for line_number, line in enumerate(data.splitlines(), 1):
+                  if any(pattern.search(line) for pattern in patterns):
+                      findings.append(f'{path}:{line_number}')
+          if findings:
+              print('Local path or personal identifier in tracked files (values withheld):')
+              print('\n'.join(findings))
+              sys.exit(1)
+          print('Tracked files contain no detected local home paths or owner identifiers.')
+          PYSCAN
