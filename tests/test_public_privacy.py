@@ -49,21 +49,22 @@ class PrivacyCheck(unittest.TestCase):
         else:
             self.git("commit", "--allow-empty", "-qm", subject, "-m", body, env=env)
 
-    def check(self, base=None, aliases=True, mode="direct"):
+    def check(self, base=None, aliases=False, mode="direct", preserved=()):
         return subprocess.run(
             [sys.executable, str(SCANNER), "--owner", HANDLE, "--owner-id", OWNER_ID,
-             "--base", base or self.base, "--base-mode", mode, "--aliases-file",
-             str(self.aliases if aliases else self.repo / "missing")],
+             "--base", base or self.base, "--base-mode", mode]
+            + (["--aliases-file", str(self.aliases)] if aliases else [])
+            + [arg for sha in preserved for arg in ("--preserve-third-party", sha)],
             cwd=self.repo, text=True, capture_output=True,
         )
 
-    def test_allowed_owner_forms_and_third_party_attribution(self):
-        self.commit("ordinary", "Co-authored-by: Dana Contributor <dana@example.invalid>",
+    def test_allowed_owner_forms_github_and_dependabot(self):
+        self.commit("ordinary", "Co-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
                     committer_name="GitHub", committer_email="noreply@github.com")
         self.commit("legacy noreply", author_email=f"{HANDLE}@users.noreply.github.com")
         self.assertEqual(self.check().returncode, 0)
 
-    def test_private_aliases_in_author_committer_and_coauthor(self):
+    def test_unapproved_author_committer_and_coauthor_without_secrets(self):
         for kwargs in (
             {"author_name": ALIAS_NAME, "author_email": ALIAS_EMAIL},
             {"committer_name": ALIAS_NAME, "committer_email": ALIAS_EMAIL},
@@ -124,7 +125,22 @@ class PrivacyCheck(unittest.TestCase):
         self.commit("proposed scanner replacement", f"Co-authored-by: {ALIAS_NAME} <{ALIAS_EMAIL}>")
         self.assertEqual(self.check().returncode, 1)
 
-    def test_tracked_paths_and_missing_private_aliases_redacted(self):
+    def test_reviewed_third_party_commit_preserves_original_metadata(self):
+        self.commit("upstream", "Co-authored-by: Dana Contributor <dana@example.invalid>",
+                    author_name="Dana Contributor", author_email="dana@example.invalid")
+        sha = self.git("rev-parse", "HEAD").stdout.strip()
+        before = self.git("cat-file", "commit", sha).stdout
+        self.assertEqual(self.check().returncode, 1)
+        self.assertEqual(self.check(preserved=[sha]).returncode, 0)
+        self.assertEqual(self.git("cat-file", "commit", sha).stdout, before)
+        self.assertEqual(self.check(preserved=["0" * 40]).returncode, 2)
+
+    def test_optional_local_alias_file(self):
+        self.commit("mention", ALIAS_NAME)
+        self.assertEqual(self.check().returncode, 0)
+        self.assertEqual(self.check(aliases=True).returncode, 1)
+
+    def test_tracked_paths_redacted(self):
         (self.repo / "sample.txt").write_text("/" + "Users/FabricatedPerson/private\n")
         self.git("add", "sample.txt")
         self.commit("tracked")
@@ -132,7 +148,6 @@ class PrivacyCheck(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertNotIn("FabricatedPerson", result.stdout + result.stderr)
         self.assertNotIn("sample.txt", result.stdout + result.stderr)
-        self.assertEqual(self.check(aliases=False).returncode, 2)
 
 
 if __name__ == "__main__":

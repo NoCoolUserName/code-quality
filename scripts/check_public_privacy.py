@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check tracked content and bounded new Git metadata before publication.
 
-Owner aliases are private input, never part of this repository or diagnostics.
+CI needs no private data. Optional local aliases never enter diagnostics.
 """
 
 import argparse
@@ -32,14 +32,24 @@ def owner_email(email, login, user_id):
 
 
 def load_aliases(args):
-    if args.aliases_file:
-        content = pathlib.Path(args.aliases_file).read_text(encoding="utf-8")
-    else:
-        content = os.environ.get(args.aliases_env, "")
+    if not args.aliases_file:
+        return []
+    content = pathlib.Path(args.aliases_file).read_text(encoding="utf-8")
     aliases = [line.strip().casefold() for line in content.splitlines() if line.strip()]
     if not aliases or any(len(alias) < 4 or "\x00" in alias for alias in aliases):
-        raise ValueError("private owner aliases are missing or invalid")
+        raise ValueError("invalid optional local aliases")
     return aliases
+
+
+def allowed_identity(name, email, login, user_id, role):
+    if name == login and owner_email(email, login, user_id):
+        return True
+    if name == "dependabot[bot]" and email.casefold() in (
+        "49699333+dependabot[bot]@users.noreply.github.com",
+        "dependabot[bot]@users.noreply.github.com",
+    ):
+        return True
+    return role == "committer" and name == "GitHub" and email == "noreply@github.com"
 
 
 def contains_alias(value, aliases):
@@ -91,8 +101,10 @@ def metadata(sha):
     return [field.decode("utf-8", "replace") for field in fields]
 
 
-def scan_metadata(commits, login, user_id, aliases):
+def scan_metadata(commits, login, user_id, aliases, preserved=()):
     findings = []
+    if any(not re.fullmatch(r"[0-9a-f]{40}", sha) or sha not in commits for sha in preserved):
+        raise ValueError("third-party approvals must name exact commits in the range")
     for sha in commits:
         author, author_email, committer, committer_email, message = metadata(sha)
         short = sha[:12]
@@ -104,23 +116,21 @@ def scan_metadata(commits, login, user_id, aliases):
                 findings.append(f"{short}: {role} contains a local home path")
             if contains_alias(name, aliases) or contains_alias(email, aliases):
                 findings.append(f"{short}: {role} contains a private owner alias")
-            if name.casefold() == login.casefold() or owner_email(email, login, user_id):
-                if name != login or not owner_email(email, login, user_id):
-                    findings.append(f"{short}: {role} has noncanonical owner attribution")
+            if sha not in preserved and not allowed_identity(name, email, login, user_id, role):
+                findings.append(f"{short}: unapproved {role} identity")
         if any(p.search(message.encode("utf-8")) for p in HOME_PATHS):
             findings.append(f"{short}: message contains a local home path")
         if contains_alias(message, aliases):
             findings.append(f"{short}: message contains a private owner alias")
-        for match in TRAILER.finditer(message):
-            name, email = match.groups()
-            if name.casefold() == login.casefold() or owner_email(email, login, user_id):
-                if name != login or not owner_email(email, login, user_id):
-                    findings.append(f"{short}: co-author has noncanonical owner attribution")
-        # A malformed owner trailer must not evade the check.
         for line in message.splitlines():
-            if line.lower().startswith("co-authored-by:") and login.casefold() in line.casefold():
-                if not TRAILER.fullmatch(line):
-                    findings.append(f"{short}: malformed owner co-author trailer")
+            if re.match(r"\s*co-authored-by\s*:", line, re.I):
+                match = TRAILER.fullmatch(line.strip())
+                if not match:
+                    findings.append(f"{short}: malformed co-author trailer")
+                elif sha not in preserved and not allowed_identity(
+                    *match.groups(), login, user_id, "co-author"
+                ):
+                    findings.append(f"{short}: unapproved co-author identity")
     return findings
 
 
@@ -131,17 +141,17 @@ def main():
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--base-mode", choices=("direct", "merge-base"), default="direct")
-    source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("--aliases-file")
-    source.add_argument("--aliases-env")
+    parser.add_argument("--aliases-file", help="optional private local file; never required in CI")
+    parser.add_argument("--preserve-third-party", action="append", default=[], metavar="SHA",
+                        help="retain attribution of an independently reviewed exact commit")
     args = parser.parse_args()
     try:
         aliases = load_aliases(args)
         head = git("rev-parse", "--verify", args.head).decode().strip()
         commits = commit_range(args.base, head, args.base_mode)
-        findings = scan_files(aliases) + scan_metadata(commits, args.owner, args.owner_id, aliases)
+        findings = scan_files(aliases) + scan_metadata(commits, args.owner, args.owner_id, aliases, args.preserve_third_party)
     except (OSError, subprocess.CalledProcessError, ValueError):
-        print("Privacy check could not complete; verify private aliases and bounded Git refs (values withheld).")
+        print("Privacy check could not complete; verify bounded Git refs and optional local inputs (values withheld).")
         return 2
     if findings:
         print("Privacy check failed (values withheld):")

@@ -1,54 +1,53 @@
 # Public attribution check
 
-The Public path privacy workflow checks tracked text files and at most 128 new
-commits. It checks author and committer fields, complete commit messages,
-`Co-authored-by` trailers, and local home paths. Owner attribution must be the
-repository handle with either `HANDLE@users.noreply.github.com` or
-`ACCOUNT_ID+HANDLE@users.noreply.github.com`. The GitHub web committer and
-unrelated contributors retain their own identities.
+These owner-maintained repositories accept new attribution from the account
+handle with its GitHub no-reply email, Dependabot's standard bot identity, and
+GitHub's web committer. Other author, committer, and co-author identities fail
+with values withheld. The scanner does not require Actions secrets or personal
+identifiers. Names and emails in attribution fields must match the allowed
+pairs; a bot-looking name alone does not grant an exception.
 
-Add the repository Actions secret `PUBLIC_PRIVACY_OWNER_ALIASES` in **each**
-repository. Put one private owner name or email per line, including any identity
-that has appeared in prior author, committer, or co-author fields. Never commit
-this list. The check fails closed if the secret is absent.
+The guard checks tracked text for local home paths and at most 128 new commits,
+including author/committer fields, full messages for home paths, and every
+`Co-authored-by` line. It does not infer personal names or emails appearing in
+ordinary prose. An optional private local aliases file can extend the content
+check on your own machine; never upload or commit that file.
 
-Pull requests run through `pull_request_target`: the workflow and executed
-scanner are loaded from the trusted base branch. The proposed checkout is only
-read as data. Never run scripts, tests, hooks, dependencies, or build commands
-from that checkout in this job. Its token has read-only contents permission,
-checkout credentials are not persisted, and no secret is passed to checkout.
-The first PR that installs this workflow is a bootstrap exception: the trusted
-base still has the old tracked-file guard. Validate that PR locally before
-publication and inspect its final merge message. Once merged, new PRs use the
-trusted scanner. Keep a PR status required in branch protection if merge
-blocking is desired.
-
-Before publishing a branch, create a private aliases file outside the checkout
-with the same one-per-line format, then run:
+Before pushing, run:
 
 ```sh
 python3 scripts/check_public_privacy.py \
   --owner NoCoolUserName --owner-id "$(gh api users/NoCoolUserName --jq .id)" \
-  --base "$(git merge-base origin/main HEAD)" --base-mode direct \
-  --aliases-file "$HOME/.config/public-privacy-owner-aliases"
+  --base "$(git merge-base origin/main HEAD)"
 ```
 
-Run this again immediately before each push or install it as a local pre-push
-hook. The command reads only the current tracked working tree and commits in the
-range; stage your intended file changes first and inspect untracked files too.
-For a local branch with a diverged target base, use `--base-mode merge-base` and
-pass the target's full SHA. For a direct main push, pass the previous full SHA
-and use `--base-mode direct`. The trusted PR workflow uses the target merge base;
-the main push job uses GitHub's before/after SHAs. Manual dispatch
-requires a full starting SHA. An unavailable ref, a non-descendant direct push,
-an empty secret, or more than 128 commits fails closed. Diagnostic output shows
-only field type, commit prefix, file index, and line number.
+Run after committing the intended files and immediately before publication.
+For extra local content checks, append `--aliases-file` with a private file path
+outside the repository, containing one name or email per line. CI does not use
+that option. The tracked scan reads the current working tree; inspect untracked
+files separately. Pull-request ranges use the merge base; main pushes use exact
+before/after SHAs. Invalid or unavailable refs, a non-descendant direct push, or
+more than 128 commits fail closed. Git history is fetched in full; the metadata
+inspection is bounded. Manual dispatch requires a full starting SHA.
 
-The local command can prevent publication when run before pushing. A PR check
-starts after its branch is already visible; it can block a merge if configured
-as a required check, but cannot undo that exposure. A main push check likewise
-reports after publication. GitHub-generated squash/merge commit messages are
-inspected only after creation by the main push check; review the proposed merge
-message before clicking Merge. These checks do not erase previously published
-commits or tags. Configure branch protection or a ruleset to require the PR
-status if merge blocking is desired.
+The PR workflow uses `pull_request_target` to load the scanner from trusted base
+code, with a read-only token and credentials removed after checkout. Proposed
+code is data only: never execute its scripts, tests, hooks, or dependencies in
+this job. No personal alias list or repository secret is supplied. The first PR
+installing the guard is a bootstrap exception: validate it locally, then verify
+the new main-push job after merging.
+
+Historical third-party attribution outside the selected new range is untouched.
+For a genuine new upstream import, retain the original commit and independently
+review its full SHA. The local `--preserve-third-party SHA` option exempts that
+exact commit's identity checks while keeping path and optional local alias
+checks. CI grants no automatic third-party exemption; accepting such imports
+requires an explicit reviewed change to trusted policy. Never relabel another
+person's contribution as the owner to satisfy this guard.
+
+Local validation can catch a disclosure before pushing. PR checks run after the
+branch is public and can block merging only when required by branch protection.
+Main-push checks, including GitHub-generated merge/squash messages, detect after
+publication. Review the final merge message before merging. No check removes
+existing disclosures or rewrites history. Diagnostics show only field category,
+commit prefix, file index, and line number.
