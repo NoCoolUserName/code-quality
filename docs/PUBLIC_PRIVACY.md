@@ -51,3 +51,9 @@ Main-push checks, including GitHub-generated merge/squash messages, detect after
 publication. Review the final merge message before merging. No check removes
 existing disclosures or rewrites history. Diagnostics show only field category,
 commit prefix, file index, and line number.
+
+Run the fabricated regression suite locally with:
+
+```sh
+python3 -m unittest discover -s tests -p test_public_privacy.py -v
+```
