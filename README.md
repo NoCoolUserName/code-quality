@@ -1,6 +1,6 @@
 # Shared code quality
 
-Small, deterministic GitHub Actions checks for repositories owned by NoCoolUserName.
+Small, deterministic GitHub Actions checks shared across repositories.
 No Codex, GitHub Copilot, model calls, API keys, subscriptions or third-party Actions.
 
 ## Checks
