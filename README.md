@@ -1,13 +1,13 @@
 # Shared code quality
 
 Small, deterministic GitHub Actions checks shared across repositories.
-No Codex, GitHub Copilot, model calls, API keys, subscriptions or third-party Actions.
+The checks run without AI services, model API keys, or subscriptions and use no third-party Actions.
 
 ## Checks
 
 - Gitleaks 8.24.3 scans the tracked snapshot, with its standard rules and fully redacted output. Its download has a fixed SHA-256 checksum; a fake-key self-test must pass before every scan. This is not a full Git history scan or a guarantee that every secret format is detected. Binary/archive contents and Git LFS payloads are not comprehensive coverage. Revoke real exposed credentials even after deleting them.
 - Ruff 0.17.0 checks Python syntax, invalid comparisons/control flow, undefined names, mutable defaults, dangerous exception/finally patterns and other selected bug risks. Navimow opts into its broader established Ruff configuration. Repositories with comprehensive existing lint can disable duplicate lint.
-- Optional mypy 2.4.0 checks selected typed modules after preflight validation. This is incremental coverage, not a claim that an entire repository is strictly typed. Type stubs are explicitly pinned when needed.
+- Optional mypy 2.4.0 checks selected typed modules after preflight validation. Type checking covers the selected modules only. Type stubs are explicitly pinned when needed.
 - Explicit offline Python tests and Node package scripts run when configured. Existing repository tests are preserved. Missing optional checks are visibly skipped in the run summary; required scripts and configured commands that fail remain failures.
 
 The job uses Ubuntu 24.04, a ten-minute timeout and only `contents: read`. Checkout does not retain Git credentials. No caller secrets are inherited, no privileged PR trigger is used, and the quality job never creates or approves PRs. No source or secret reports are uploaded. Dependencies and tests execute repository code on a disposable GitHub-hosted runner with the same limited token scope; review external contributions before approving them.
@@ -71,8 +71,8 @@ prereleases, downgrades, added/removed dependencies, lifecycle-script edits,
 workflow/policy changes and unsupported lock formats are blocked. uv/pyproject
 updates continue to get proposals and checks but are not auto-merged by this
 initial conservative parser. No repository with missing behavioral coverage should
-set `enabled: true`. Group patch updates separately from other version updates so
-an ineligible update cannot hold all patch proposals hostage.
+set `enabled: true`. Group patch updates separately so one ineligible update does not block eligible
+patch proposals.
 
 `configure_ruleset.py REPOSITORY` previews an additive native ruleset from the
 repository policy. `--apply` needs a separately authorized administrator session.
@@ -91,8 +91,8 @@ CodeQL's high/critical security results fail the check in addition to uploading
 results to GitHub. The pinned Semgrep engine uses six reviewed Python/JS/TS rules
 covering shell execution, unsafe YAML, disabled TLS verification, dynamic JavaScript
 execution and URL-to-HTML injection. It uses no hosted rule service, credentials,
-telemetry, source uploads or paid features. These deliberately small rules are
-limited SAST coverage, not a substitute for behavioral and negative tests. Scanner
+telemetry, source uploads or paid features. These six rules provide
+limited SAST coverage and complement behavioral and negative tests. Scanner
 failure is a failed check. Existing tests, protocol contracts, frozen synthetic
 evaluations and integration checks remain authoritative.
 
@@ -115,10 +115,10 @@ Keep project-specific matrices where they validate supported Python/protocol
 contracts. The merge controller has a five-minute limit, Semgrep eight minutes,
 CodeQL fifteen minutes, and the original quality job ten minutes. No new caches,
 source artifacts, nightly scan schedules or recurring AI services are required.
-GitHub billing-budget alerts need account administration and are separate from
-per-job timeouts; do not claim a budget is configured merely because timeouts exist.
+GitHub billing-budget alerts require account administration and must be configured
+separately from per-job timeouts.
 
-Known-good main before this reconciled extension: `927052f6ef9ce21c1fec280dcc87affdee1ae87a`.
+The extension builds on validated main revision `927052f6ef9ce21c1fec280dcc87affdee1ae87a`.
 The extension retains the required Node validation inputs and contract tests from
 PR #3; the central native-check policy includes those contract tests.
 Disable a caller's `merge` input or set policy `enabled: false` to stop automatic
