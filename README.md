@@ -12,6 +12,45 @@ The checks run without AI services, model API keys, or subscriptions and use no 
 
 The job uses Ubuntu 24.04, a ten-minute timeout and only `contents: read`. Checkout does not retain Git credentials. No caller secrets are inherited, no privileged PR trigger is used, and the quality job never creates or approves PRs. No source or secret reports are uploaded. Dependencies and tests execute repository code on a disposable GitHub-hosted runner with the same limited token scope; review external contributions before approving them.
 
+## Prevent dotenv leaks
+
+Keep local credentials in untracked `.env` files. Add these patterns to each
+caller's root `.gitignore` to cover files at any depth:
+
+```gitignore
+.env
+.env.*
+!.env.example
+```
+
+Commit `.env.example` with placeholders only. Run `git check-ignore -v -- .env`
+to verify the ignore rule and `git ls-files -- .env` to check whether the file is
+already tracked. Ignore rules apply to untracked files during normal staging.
+
+Enable [GitHub Push Protection][push-protection] on eligible public repositories
+under **Settings → Advanced Security**. It can reject pushes containing
+supported secret patterns. An `.env` file can still be pushed if its contents
+do not trigger a detection. The shared Gitleaks job runs after GitHub receives
+the commit and checks the tracked snapshot available in the checkout. Rotate
+any credentials that were exposed.
+
+For personal private repositories on GitHub Free, use the repository ignore
+rules and the shared Gitleaks check. A local Git hook can reject dotenv paths or
+run Gitleaks before a commit or push without using Actions minutes. The shared
+check uses no model calls. Reuse it on PRs and default-branch pushes, cancel
+superseded runs, and avoid duplicate scheduled scans. Standard runners are
+free in public repositories. Private repositories draw from the account's
+[Actions allowance][actions-billing].
+
+Enable **Dependabot alerts** and **Malware alerts** in **Settings → Advanced
+Security** to receive GitHub's malicious dependency alerts. These settings are
+separate from Dependabot update PRs and the Gitleaks job. See
+[Configuring Dependabot malware alerts][malware-alerts].
+
+[push-protection]: https://docs.github.com/en/code-security/how-tos/secure-your-secrets/prevent-future-leaks/enable-push-protection
+[actions-billing]: https://docs.github.com/en/billing/concepts/product-billing/github-actions
+[malware-alerts]: https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/configure-malware-alerts
+
 ## Caller
 
 Use `.github/workflows/code-quality.yml` with `pull_request`, default-branch `push`, and `workflow_dispatch` triggers. Pin the shared workflow to a verified full 40-character commit SHA. Add per-workflow concurrency with cancellation of superseded runs. Omit Python install/test commands when an existing workflow already covers them.
