@@ -1,2 +1,7 @@
 __pycache__/
 *.pyc
+
+# Local environment files
+.env
+.env.*
+!.env.example
